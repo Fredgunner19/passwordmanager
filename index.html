@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 400px;
+            margin: auto;
+            padding: 20px;
+            text-align: center;
+        }
+        input, button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+        }
+        .passwordlist {
+            margin-top: 20px;
+            text-align: left;
+        }
+        .passworditem {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        #passwordManager {
+            display: none;
+        }
+        #passwordStrength {
+            font-size: 12px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loginScreen">
+        <h2>Login</h2>
+        <input type="text" id="username" placeholder="Enter Username">
+        <input type="password" id="mainPassword" placeholder="Enter main Password">
+        <button onclick="login()">Login</button>
+    </div>
+
+    <div id="passwordManager">
+        <h2>Password Manager</h2>
+        <input type="text" id="site" placeholder="Website">
+        <input type="text" id="accountUsername" placeholder="Username">
+        <input type="password" id="password" placeholder="Password" oninput="checkPasswordStrength()">
+        <div id="passwordStrength"></div>
+        <button onclick="generatePassword()">Generate Password</button>
+        <button onclick="savePassword()">Save</button>
+        <button onclick="exportPasswords()">Export JSON</button>
+        <input type="file" id="jsonFile" accept="application/json">
+        <button onclick="loadUserFromFile()">Import JSON</button>
+
+        <div class="passwordlist" id="passwordList"></div>
+        <button onclick="logout()">Logout</button>
+    </div>
+
+    <script>
+        async function encryptPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            const hash = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+
+        let mainUSERNAME = localStorage.getItem("mainUsername") || "check";
+        let mainPASSWORD = localStorage.getItem("mainPassword") || "check123";
+        let loginAttempts = 0;
+        const maxattempts = 3;
+
+        function login() {
+            let enteredUsername = document.getElementById("username").value;
+            let enteredPassword = document.getElementById("mainPassword").value;
+            if (enteredUsername == mainUSERNAME && enteredPassword == mainPASSWORD) {
+                document.getElementById("loginScreen").style.display = "none";
+                document.getElementById("passwordManager").style.display = "block";
+                displayPasswords();
+            } else {
+                loginAttempts++;
+                alert("Incorrect username or password");
+                if (loginAttempts >= MAX_ATTEMPTS) {
+                    alert("Too many failed attempts. Please try again later.");
+                    document.getElementById("mainPassword").disabled = true;
+                    document.getElementById("username").disabled = true;
+                }
+            }
+        }
+
+        function logout() {
+            document.getElementById("passwordManager").style.display = "none";
+            document.getElementById("loginScreen").style.display = "block";
+        }
+
+        function generatePassword() {
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
+            const passwordLength = 12;
+            let password = "";
+            for (let i = 0; i < passwordLength; i++) {
+                password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            document.getElementById("password").value = password;
+            checkPasswordStrength();
+        }
+
+        async function savePassword() {
+            let site = document.getElementById("site").value;
+            let username = document.getElementById("accountUsername").value;
+            let password = document.getElementById("password").value;
+
+            if (site && username && password) {
+                let encryptedPassword = await encryptPassword(password);
+                let passwords = JSON.parse(localStorage.getItem("passwords")) || [];
+                passwords.push({ site, username, password: encryptedPassword });
+                localStorage.setItem("passwords", JSON.stringify(passwords));
+                displayPasswords();
+            }
+        }
+
+        function displayPasswords() {
+            let passwords = JSON.parse(localStorage.getItem("passwords")) || [];
+            let passwordList = document.getElementById("passwordList");
+            passwordList.innerHTML = "";
+
+            passwords.forEach((entry, index) => {
+                let div = document.createElement("div");
+                div.classList.add("passworditem");
+                div.innerHTML = `<strong>${entry.site}</strong>: ${entry.username} - <span onclick="deletePassword(${index})" style="color:red;cursor:pointer;">Delete</span>`;
+                passwordList.appendChild(div);
+            });
+        }
+
+        function deletePassword(index) {
+            let passwords = JSON.parse(localStorage.getItem("passwords")) || [];
+            passwords.splice(index, 1);
+            localStorage.setItem("passwords", JSON.stringify(passwords));
+            displayPasswords();
+        }
+
+        function exportPasswords() {
+            let passwords = localStorage.getItem("passwords");
+            let blob = new Blob([passwords], { type: "application/json" });
+            let a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "passwords.json";
+            a.click();
+        }
+
+        function loadUserFromFile() {
+            const fileInput = document.getElementById("jsonFile");
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    if (Array.isArray(data)) {
+                        localStorage.setItem("passwords", JSON.stringify(data));
+                        displayPasswords();
+                        alert("Passwords imported successfully.");
+                    } else {
+                        alert("Invalid JSON file.");
+                    }
+                } catch (e) {
+                    alert("Failed to read file: " + e.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function checkPasswordStrength() {
+            let password = document.getElementById("password").value;
+            let strengthText = "Weak";
+            let strengthColor = "red";
+
+            if (password.length >= 8 && /[A-Z]/.test(password) && /[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password)) {
+                strengthText = "Strong";
+                strengthColor = "green";
+            } else if (password.length >= 6) {
+                strengthText = "Medium";
+                strengthColor = "orange";
+            }
+
+            document.getElementById("passwordStrength").textContent = "Strength: " + strengthText;
+            document.getElementById("passwordStrength").style.color = strengthColor;
+        }
+    </script>
+</body>
+</html>
+
